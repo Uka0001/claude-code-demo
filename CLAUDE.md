@@ -11,13 +11,16 @@ npm run setup
 # Development server (Turbopack, requires node-compat.cjs shim)
 npm run dev
 
+# Development server in background (logs written to logs.txt)
+npm run dev:daemon
+
 # Build for production
 npm run build
 
 # Lint
 npm run lint
 
-# Run all tests
+# Run all tests (Vitest + jsdom + @testing-library/react)
 npm test
 
 # Run a single test file
@@ -30,11 +33,20 @@ npx vitest run -t "should create a file"
 npm run db:reset
 ```
 
+## Environment
+
+The only required env var is `ANTHROPIC_API_KEY`. Without it the app falls back to a mock provider. Put it in `.env.local`.
+
 ## Architecture
 
 ### Overview
 
 UIGen is a Next.js 15 (App Router) application that lets users describe React components in a chat interface, then generates and live-previews them. The key insight is that **no files are ever written to disk** — all generated code lives in an in-memory `VirtualFileSystem`.
+
+### Routes
+
+- `/` — anonymous users land here and work without persistence; their in-progress messages and VFS are saved to `sessionStorage` via `src/lib/anon-work-tracker.ts`. Authenticated users are immediately redirected to their most recent project (or a newly created one).
+- `/[projectId]` — authenticated project view; unauthenticated requests redirect to `/`.
 
 ### Core Data Flow
 
@@ -83,6 +95,23 @@ Prisma client is generated into `src/generated/prisma/`.
 ### Mock Provider
 
 If `ANTHROPIC_API_KEY` is absent, `src/lib/provider.ts` returns a mock model that echoes static code. The chat route caps `maxSteps` at 4 for the mock vs. 40 for real Claude.
+
+### Server Actions (`src/actions/`)
+
+Next.js Server Actions (not API routes) handle auth and project CRUD:
+- `src/actions/index.ts` — `signIn`, `signUp`, `signOut`, `getUser` (backed by bcrypt + JWT session)
+- `src/actions/get-project.ts`, `get-projects.ts`, `create-project.ts` — project persistence
+
+### Generation Prompt (`src/lib/prompts/generation.tsx`)
+
+The system prompt sent to Claude has constraints that must stay consistent with the preview pipeline:
+- Every project must have a root `/App.jsx` as the entry point
+- Local file imports must use the `@/` alias (e.g. `@/components/Button`)
+- Styling must use Tailwind CSS — no inline/hardcoded styles, no HTML files
+
+### Test Conventions
+
+Tests use Vitest + jsdom + `@testing-library/react` and are co-located in `__tests__/` subdirectories next to the code they test. No jest config — `vitest.config.ts` (or the vite config) drives everything.
 
 ### Node Compatibility Shim
 
